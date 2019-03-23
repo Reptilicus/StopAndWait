@@ -6,7 +6,7 @@ public class Packet {
 	int ackno;
 	int seqno;
 	byte[] data;
-	byte[] packet;
+	byte[] packets;
 	
 	/*
 	 * Creates a data packet, calculates cksum and len, and creates packet
