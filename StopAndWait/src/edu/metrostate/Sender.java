@@ -6,6 +6,7 @@ import java.io.*;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.net.SocketTimeoutException;
 import java.nio.ByteBuffer;
 
 import org.apache.commons.cli.CommandLine;
@@ -14,6 +15,7 @@ import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.HelpFormatter;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
+
 /**
  * A program to act as a UDP sender
  * 
@@ -27,6 +29,7 @@ import org.apache.commons.cli.ParseException;
 public class Sender {
 	
 	private final static int DEFAULT_PACKET_SIZE = 512;
+	private final int MAX_ACK_SIZE = 9;						//ACK packet shouldn't be bigger than 8 bytes
 	private final int PACKET_SIZE;
 	private final int PORT;
 	private final File FILE;
@@ -121,10 +124,11 @@ public class Sender {
 		
 	private final void send() {
 		DatagramPacket senderPacket;
-
+		
 		try {
+	        
 			DatagramSocket socket = new DatagramSocket();
-			
+			socket.setSoTimeout(TIMEOUT);
 			//Get the file and destination address from the command line argument
 			InetAddress destAddress = InetAddress.getByName(RECEIVER_ADDRESS);
 			
@@ -133,27 +137,32 @@ public class Sender {
 			
 			
 			//Until there are no more bytes to be read, read in file data and send it as a packet
-			for (int i = 0; i < packetArray.length &&  packetArray[i] != null;) {
+			System.out.println("Input: ");
+			System.out.println("cksum: " + packetArray[0].getCksum());
+			System.out.println("len: " + packetArray[0].getLen());
+			System.out.println("ackno: " + packetArray[0].getAckno());
+			System.out.println("seqno: " + packetArray[0].getSeqno());
+			
+			Packet packet = new Packet(packetArray[0].getData());
+			System.out.println("Output");
+			System.out.println("cksum: " + packet.getCksum());
+			System.out.println("len: " + packet.getLen());
+			System.out.println("ackno: " + packet.getAckno());
+			System.out.println("seqno: " + packet.getSeqno());
+			
+			
+
+ 			for (int i = 0; i < packetArray.length &&  packetArray[i] != null;) {
 				if (isDropped()) {
-					double chance = Math.random();
-					
-					//If it's corrupted
-					if (chance > 0.5) {
-						byte[] garbage = new byte[(int)(Math.random() * PACKET_SIZE)];
-						
-						for (int j = 0; j < garbage.length; j++) {
-							garbage[j] = (byte)(Math.random() * 32);
-						}
-						
-						senderPacket = new DatagramPacket(garbage, garbage.length, destAddress, PORT);
-						System.out.println("Sending out garbage of length: " + garbage.length);
-						socket.send(senderPacket);
-					} 	
-					
-				} else {
-					senderPacket = new DatagramPacket(packetArray[i].toByteArray(), packetArray[i].getLen(), destAddress, PORT);
-					System.out.println("Sending out good packet of length: " + packetArray[i].getLen());
-					socket.send(senderPacket);
+					if (Math.random() > 0.5) {	
+						packetArray[i].error();
+					}
+				}
+				senderPacket = new DatagramPacket(packetArray[i].toByteArray(), packetArray[i].getLen(), destAddress, PORT);
+				System.out.println("Sending out good packet of length: " + packetArray[i].getLen());
+				socket.send(senderPacket);
+
+				if (ackReceived(socket)) {
 					i++;
 				}
 
@@ -190,7 +199,7 @@ public class Sender {
 	private void createPacketArray() {
 		int i = 0;
 		try {
-			byte[] data = new byte[PACKET_SIZE];
+			byte[] data = new byte[PACKET_SIZE - 12];
 			ByteBuffer byteBuff = ByteBuffer.wrap(data);
 			
 			
@@ -203,14 +212,16 @@ public class Sender {
 			
 			//Until there are no more bytes to be read, read in file data and send it as a packet
 			do {
-				packetArray[i] = new Packet(data, i++);
+				packetArray[i] = new Packet(data, i);
 				byteBuff.clear();
 				bytesRead = bis.read(data);
+				i++;
 			} while (bytesRead != -1);
 			
 			bis.close();
 		} catch (Exception e) {	
-			
+			printError(e.getMessage());
+			e.printStackTrace();
 		}
 		
 	}
@@ -225,6 +236,20 @@ public class Sender {
 	
 	private boolean isDropped() {
 		return Math.random() < DROP_RATE;
+	}
+	
+	private boolean ackReceived(DatagramSocket socket) {
+		try {
+	        byte[] receiveData = new byte[MAX_ACK_SIZE];
+			DatagramPacket ack = new DatagramPacket(receiveData, receiveData.length);
+			socket.receive(ack);
+		} catch (SocketTimeoutException e) {
+			return false;
+		} catch (IOException io) {
+			printError(io.getMessage());
+			io.printStackTrace();
+		}
+		return true;
 	}
 	
 	
