@@ -1,14 +1,8 @@
 package edu.metrostate;
 
-import java.io.Serializable;
 import java.nio.ByteBuffer;
 
-public class Packet implements Serializable{
-	/**
-	 * 
-	 */
-	private static final long serialVersionUID = 1872859865829053617L;
-	private final static int MAX_PACKET_LENGTH = 512;
+public class Packet {
 	private short cksum;
 	private short len;
 	private int ackno;
@@ -40,12 +34,187 @@ public class Packet implements Serializable{
 		craftPacket();
 		
 	}
-	
-	public Packet(byte[] pPacket) {
+	/*
+	 * Takes a byte array and unpacks it into a packet object
+	 */
+	public Packet(byte[] pPacket, short length) {
 		this.packet = pPacket;
-		splitPacket();
+		this.len = length;
+		unpackPacket();
+	}
+
+	/*
+	 * Returns the packet as a byte array
+	 */
+	public byte[] toByteArray() {
+		return packet;
 	}
 	
+	/*
+	 * Packs the packet
+	 */
+	private void craftPacket() {
+		//If it's a data packet
+	    if (data != null) {
+			packet = new byte[data.length + 12];
+		    packCksum();
+		    packLen();
+		    packSeqno();
+		    packAckno();
+		    packData();
+
+	    } else {
+	    	packet = new byte[8];
+	    	packCksum();
+	    	packLen();
+	    	packAckno();
+	    } // Otherwise it's an ack packet
+	}
+	
+	/*
+	 * Unpacks the packet
+	 */
+	private void unpackPacket() {
+
+    	unpackCksum();
+    	unpackLen();
+    	unpackAckno();
+    
+	    if (len > 8) {
+	    	unpackSeqno();
+	    	unpackData();
+	    }
+	}
+	
+	/*
+	 * Returns the packed byte array
+	 */
+	public byte[] getPacket() {
+		return packet;
+	}
+	
+	/*
+	 * Oh no! An error occurred
+	 */
+	public void error() {
+		cksum = 1;
+		packCksum();
+	}
+	
+	/*
+	 * Is this a valid packet?
+	 */
+	public boolean isValidPacket() {
+		return cksum == 0;
+	}
+	
+	/*
+	 * Error correction
+	 */
+	public void fixError() {
+		cksum = 0;
+		packCksum();
+
+	}
+	
+	/*
+	 * Packs the checksum into the packet
+	 */
+	private void packCksum() {
+	    packet[0] = (byte) ((cksum >> 8) & 0xff);
+	    packet[1] = (byte) (cksum & 0xff);
+	}
+	
+	/*
+	 * Packs the length into the packet
+	 */
+	private void packLen() {
+	    packet[2] = (byte) ((len >> 8) & 0xff);
+	    packet[3] = (byte) (len & 0xff);
+	}
+	
+	/*
+	 * Packs the Ack number into the packet
+	 */
+	private void packAckno() {
+	    packet[4] = (byte) ((ackno & 0xFF000000) >> 24);
+	    packet[5] = (byte) ((ackno & 0x00FF0000) >> 16);
+	    packet[6] = (byte) ((ackno & 0x0000FF00) >> 8);
+	    packet[7] = (byte) ((ackno & 0x000000FF) >> 0);
+	}
+	
+	/*
+	 * Packs the sequence number into the packet
+	 */
+	private void packSeqno() {
+	    packet[8] = (byte) ((seqno & 0xFF000000) >> 24);
+	    packet[9] = (byte) ((seqno & 0x00FF0000) >> 16);
+	    packet[10] = (byte) ((seqno & 0x0000FF00) >> 8);
+	    packet[11] = (byte) ((seqno & 0x000000FF) >> 0);
+	}
+	
+	/*
+	 * Packs the payload into the packet
+	 */
+	private void packData() {
+		for (int i = 0; i < data.length; i++) {
+			packet[i + 12] = data[i];
+		}
+	}
+	
+	/*
+	 * Unpacks the checksum from the packet
+	 */
+	private void unpackCksum() {
+		byte[] bCksum = new byte[2];
+    	for (int i = 0; i < 2; i++) {
+    		bCksum[i] = packet[i];
+    	}
+    	cksum = (short) ((bCksum[1] & 0xFF) << 8 | (bCksum[0] & 0xFF));
+	}
+	
+	/*
+	 * Unpacks the length from the packet
+	 */
+	private void unpackLen() {
+		byte[] bLen = new byte[2];
+    	for (int i = 0; i < 2; i++) {
+    		bLen[i] = packet[i + 2];
+    	}
+    	len = ByteBuffer.wrap(bLen).getShort();
+	}
+	
+	/*
+	 * Unpacks the Ack number from the packet
+	 */
+	private void unpackAckno() {
+    	byte[] bAckno = new byte[4];
+    	for (int i = 0; i < 4; i++) {
+    		bAckno[i] = packet[i + 4];
+    	}
+    	ackno = ByteBuffer.wrap(bAckno).getInt();
+	}
+	
+	/*
+	 * Unpacks the sequence number from the packet
+	 */
+	private void unpackSeqno() {
+		data = new byte[len - 12];
+    	byte[] bSeqno = new byte[4];
+    	for (int i = 0; i < 4; i++) {
+    		bSeqno[i] = packet[i + 8];
+    	}
+    	seqno = ByteBuffer.wrap(bSeqno).getInt();
+	}
+	
+	/*
+	 * Unpacks the payload from the packet
+	 */
+	private void unpackData() {
+		for (int i = 0; i + 12 < len; i++) {
+			 data[i] = packet[i + 12];
+		}
+	}
 	
 	public short getCksum() {
 		return cksum;
@@ -61,6 +230,7 @@ public class Packet implements Serializable{
 
 	public void setAckno(int ackno) {
 		this.ackno = ackno;
+		packAckno();
 	}
 
 	public int getSeqno() {
@@ -78,78 +248,4 @@ public class Packet implements Serializable{
 	public void setData(byte[] data) {
 		this.data = data;
 	}
-
-	/*
-	 * Returns the packet as a byte array
-	 */
-	public byte[] toByteArray() {
-		return packet;
-	}
-	
-	private void craftPacket() {
-		packet = new byte[MAX_PACKET_LENGTH + 1];
-	    packet[0] = (byte) (cksum & 0xff);
-	    packet[1] = (byte) ((cksum >> 8) & 0xff);
-	    packet[2] = (byte) (len & 0xff);
-	    packet[3] = (byte) ((len >>> 8) & 0xff);
-	    packet[4] = (byte) ((ackno & 0xFF000000) >> 24);
-	    packet[5] = (byte) ((ackno & 0x00FF0000) >> 16);
-	    packet[6] = (byte) ((ackno & 0x0000FF00) >> 8);
-	    packet[7] = (byte) ((ackno & 0x000000FF) >> 0);
-	    
-	    if (data.length > 0) {
-		    packet[8] = (byte) ((seqno & 0xFF000000) >> 24);
-		    packet[9] = (byte) ((seqno & 0x00FF0000) >> 16);
-		    packet[10] = (byte) ((seqno & 0x0000FF00) >> 8);
-		    packet[11] = (byte) ((seqno & 0x000000FF) >> 0);
-		    
-			for (int i = 0; i < data.length; i++) {
-				packet[i + 12] = data[i];
-			}
-	    }
-	}
-	
-	private void splitPacket() {
-		data = new byte[MAX_PACKET_LENGTH - 11];
-		
-		
-		byte[] bCksum = new byte[2];
-    	for (int i = 0; i < 2; i++) {
-    		bCksum[i] = packet[i];
-    	}
-    	cksum = (short) ((bCksum[1] & 0xFF) << 8 | (bCksum[0] & 0xFF));
-    	
-		byte[] bLen = new byte[2];
-    	for (int i = 0; i < 2; i++) {
-    		bLen[i] = packet[i + 2];
-    	}
-    	len = ByteBuffer.wrap(bLen).getShort();
-    	
-    	byte[] bAckno = new byte[4];
-    	for (int i = 0; i < 4; i++) {
-    		bAckno[i] = packet[i + 4];
-    	}
-    	ackno = ByteBuffer.wrap(bAckno).getInt();
-	    
-	    if (packet.length > 8) {
-	    	
-	    	byte[] bSeqno = new byte[4];
-	    	for (int i = 0; i < 4; i++) {
-	    		bSeqno[i] = packet[i + 8];
-	    	}
-	    	seqno = ByteBuffer.wrap(bSeqno).getInt();
-		    
-			for (int i = 0; i + 12 < packet.length; i++) {
-				 data[i] = packet[i + 12];
-			}
-	    }
-	}
-	
-	public void error() {
-		cksum = 1;
-	    packet[0] = (byte) (cksum & 0xff);
-	    packet[1] = (byte) ((cksum >>> 8) & 0xff);
-	}
-	
-
 }
